@@ -31,6 +31,7 @@ class MarketSignal(BaseModel):
     value_score: float
     signal_type: str
     timestamp: Optional[datetime] = None
+    val_gap_score: float = 0.0  # (local_odds / global_fair_from_odds_api) - 1
 
     def model_post_init(self, __context) -> None:
         if self.timestamp is None:

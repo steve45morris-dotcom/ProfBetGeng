@@ -157,13 +157,49 @@ class OddsLookupService:
             if fair and fair > 0:
                 sel.val_gap_score = round((sel.odds / fair) - 1.0, 4)
 
+    @staticmethod
+    def _market_to_pick(market: str) -> Optional[str]:
+        """Extract 1X2 pick from market strings like '1X2_HOME', '1X2_DRAW', '1X2_AWAY'."""
+        m = market.upper()
+        if "HOME" in m:
+            return "home"
+        if "DRAW" in m:
+            return "draw"
+        if "AWAY" in m:
+            return "away"
+        return None
+
+    async def enrich_market_signals(self, signals) -> None:
+        """
+        Mutates val_gap_score on each MarketSignal in-place.
+        Only enriches 1X2 markets (HOME/DRAW/AWAY) — skips BTTS, O2.5, ARB, etc.
+        Stays 0.0 if match not found in cache or API key absent.
+        """
+        if not self._api_key:
+            return
+        await self._ensure_fresh()
+
+        for signal in signals:
+            pick = self._market_to_pick(signal.market)
+            if pick is None:
+                continue
+            fair = self._lookup_fair(signal.teams, pick)
+            if fair and fair > 0:
+                signal.val_gap_score = round((signal.local_odds / fair) - 1.0, 4)
+
 
 class MockOddsLookupService:
-    """Test double — returns a fixed val_gap_score for any 1X2 selection."""
+    """Test double — returns fixed val_gap_score stubs."""
 
     async def enrich_val_gap(self, selections: List[NormalizedSelection]) -> None:
         for sel in selections:
             sel.val_gap_score = 0.05  # stub: 5% edge above fair
+
+    async def enrich_market_signals(self, signals) -> None:
+        for signal in signals:
+            m = signal.market.upper()
+            if any(x in m for x in ("HOME", "DRAW", "AWAY")):
+                signal.val_gap_score = 0.05  # stub: 5% edge
 
 
 _odds_service: Optional[OddsLookupService] = None

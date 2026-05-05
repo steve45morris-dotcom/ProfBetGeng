@@ -461,8 +461,11 @@ async def get_bankroll_size(
 async def get_signals(
     limit: int = Query(20, ge=1, le=50),
     _: str = Depends(require_api_key),
+    odds_service=Depends(get_odds_lookup_service),
 ):
     signals = _discovery_service.get_signals(limit=limit)
+    if odds_service is not None:
+        await odds_service.enrich_market_signals(signals)
     return {"signals": [s.model_dump() for s in signals], "count": len(signals)}
 
 
