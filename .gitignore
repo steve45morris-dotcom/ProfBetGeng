@@ -162,3 +162,8 @@ upload_info.json
 # HTML preview exports
 Integrated_Sovereign_Preview.html
 Standalone_Sovereign_Preview.html
+
+# Local tool artifacts (never deploy)
+.playwright-mcp/
+.mcp.json
+*.png
