@@ -10,7 +10,7 @@ _ENV_FILE = Path(__file__).parent / ".env"
 
 class Settings(BaseSettings):
     app_name: str = "ProfBetGeng"
-    app_version: str = "0.3.0"
+    app_version: str = "0.9.2"
     debug: bool = False
     auth_enabled: bool = True
     batch_enabled: bool = False
