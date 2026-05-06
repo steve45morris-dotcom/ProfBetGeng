@@ -17,6 +17,8 @@ from slowapi.middleware import SlowAPIMiddleware
 from .services.limiter_config import limiter
 
 from .routes import router
+from .syndicate_routes import syndicate_router
+from .analytics_routes import analytics_router
 from .admin_routes import admin_router
 from .config import get_settings
 from .services.pbg_streaming_protocol import LiveOddsEngine, live_odds_manager
@@ -80,6 +82,8 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(router)
+    app.include_router(syndicate_router)
+    app.include_router(analytics_router)
     app.include_router(admin_router)
     return app
 
