@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
 BASE="/Users/alexanderanthony/Backend Services/apis/ProfBetGeng_Claud001"
-source "$BASE/venv/bin/activate"
+PYTHON="$BASE/venv/bin/python3.12"
 cd "$BASE"
-exec uvicorn backend.main:app --host 0.0.0.0 --port 8000
+exec "$PYTHON" -m uvicorn backend.main:app --host 0.0.0.0 --port 8000

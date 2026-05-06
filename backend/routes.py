@@ -3,8 +3,8 @@ import uuid as _uuid
 import datetime as _datetime
 from typing import Optional, List
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Security, WebSocket, WebSocketDisconnect, BackgroundTasks
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Security, WebSocket, WebSocketDisconnect, BackgroundTasks
+from fastapi.responses import Response, StreamingResponse
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
 
@@ -30,7 +30,9 @@ from .services.ticket_pulse import TicketPulseService, MockTicketPulseService, R
 from .services.risk_engine import RiskEngine
 from .services.sentiment import SentimentAnalysisService
 from .services.odds_lookup import get_odds_lookup_service
+from .services.portfolio_service import PortfolioService, PortfolioSummary
 from .services.supabase_client import get_supabase_client
+from .services.limiter_config import limiter
 from .config import get_settings
 from .batch import BatchConvertRequest, BatchConvertResponse, BatchTicketResult, BatchSummary
 
@@ -90,8 +92,11 @@ async def health():
 
 
 @router.post("/api/v1/convert", response_model=ConvertResponse)
+@limiter.limit("30/minute")
 async def convert_ticket(
-    request: ConvertRequest,
+    request: Request,
+    response: Response,
+    body: ConvertRequest,
     background_tasks: BackgroundTasks,
     api_key: str = Depends(require_api_key),
     auth_service=Depends(get_auth_service),
@@ -106,9 +111,9 @@ async def convert_ticket(
             raise HTTPException(status_code=403, detail="Invalid or inactive API key")
 
     sportybet_ticket = SportybetTicket(
-        booking_code=request.booking_code,
-        selections=request.selections,
-        stake=request.stake,
+        booking_code=body.booking_code,
+        selections=body.selections,
+        stake=body.stake,
     )
     internal_ticket, _ = parser.parse(sportybet_ticket)
 
@@ -121,10 +126,10 @@ async def convert_ticket(
     metrics_result = None
     sentiment_result = None
 
-    if request.include_analysis:
+    if body.include_analysis:
         metrics_result = RiskEngine.compute(converted, internal_ticket.selections)
         pulse_result, sentiment_result = await asyncio.gather(
-            pulse_service.analyse(converted, language=request.language),
+            pulse_service.analyse(converted, language=body.language),
             sentiment_service.analyse(converted),
         )
 
@@ -136,13 +141,13 @@ async def convert_ticket(
 
     record = ConversionRecord(
         api_key=api_key,
-        source_booking_code=request.booking_code,
+        source_booking_code=body.booking_code,
         source_platform="sportybet",
         target_platform="bet9ja",
-        selections_count=len(request.selections),
+        selections_count=len(body.selections),
         converted_count=converted.converted_count,
         skipped_count=converted.skipped_count,
-        stake=request.stake,
+        stake=body.stake,
         total_odds=internal_ticket.total_odds,
         potential_returns=internal_ticket.potential_returns,
         risk_score=pulse_result.score if pulse_result else None,
@@ -167,8 +172,11 @@ async def convert_ticket(
 
 
 @router.post("/api/v1/analyse", response_model=AnalyseResponse)
+@limiter.limit("20/minute")
 async def analyse_ticket(
-    request: AnalyseRequest,
+    request: Request,
+    response: Response,
+    body: AnalyseRequest,
     api_key: str = Depends(require_api_key),
     auth_service=Depends(get_auth_service),
     pulse_service=Depends(get_pulse_service),
@@ -177,13 +185,16 @@ async def analyse_ticket(
     if settings.auth_enabled and api_key != "dev_bypass":
         if not auth_service.validate_key(api_key):
             raise HTTPException(status_code=403, detail="Invalid or inactive API key")
-    analysis = await pulse_service.analyse(request.converted, language=request.language)
+    analysis = await pulse_service.analyse(body.converted, language=body.language)
     return AnalyseResponse(success=True, analysis=analysis)
 
 
 @router.post("/api/v1/analyse/stream")
+@limiter.limit("20/minute")
 async def analyse_ticket_stream(
-    request: AnalyseRequest,
+    request: Request,
+    response: Response,
+    body: AnalyseRequest,
     api_key: str = Depends(require_api_key),
     auth_service=Depends(get_auth_service),
     pulse_service=Depends(get_pulse_service),
@@ -193,7 +204,7 @@ async def analyse_ticket_stream(
         if not auth_service.validate_key(api_key):
             raise HTTPException(status_code=403, detail="Invalid or inactive API key")
 
-    generator = pulse_service.analyse_stream(request.converted, language=request.language)
+    generator = pulse_service.analyse_stream(body.converted, language=body.language)
     return StreamingResponse(generator, media_type="text/event-stream")
 
 
@@ -213,7 +224,10 @@ async def get_history(
 
 
 @router.post("/api/v1/keys", response_model=APIKeyResponse)
+@limiter.limit("5/minute")
 async def create_api_key(
+    request: Request,
+    response: Response,
     payload: APIKeyCreate,
     admin_token: str = Security(APIKeyHeader(name="X-Admin-Token", auto_error=False)),
     auth_service=Depends(get_auth_service),
@@ -227,8 +241,11 @@ async def create_api_key(
 
 
 @router.post("/api/v1/convert-batch", response_model=BatchConvertResponse)
+@limiter.limit("10/minute")
 async def convert_batch(
-    request: BatchConvertRequest,
+    request: Request,
+    response: Response,
+    body: BatchConvertRequest,
     api_key: str = Depends(require_api_key),
     auth_service=Depends(get_auth_service),
     storage_service=Depends(get_storage_service),
@@ -280,7 +297,7 @@ async def convert_batch(
         except Exception as exc:
             return BatchTicketResult(index=index, status="error", error=str(exc))
 
-    tasks = [process_one(i, t) for i, t in enumerate(request.tickets)]
+    tasks = [process_one(i, t) for i, t in enumerate(body.tickets)]
     results: list[BatchTicketResult] = await asyncio.gather(*tasks)
 
     succeeded = sum(1 for r in results if r.status == "success")
@@ -400,6 +417,7 @@ _whale_service = WhaleTrackerService()
 _bankroll_service = BankrollService()
 _alpha_service = AlphaService()
 _strategy_service = StrategyService()
+_portfolio_service = PortfolioService()
 
 
 @router.get("/api/v1/analytics/risk", response_model=PortfolioRiskMetrics)
@@ -438,7 +456,10 @@ async def get_whale_pulses(
 
 
 @router.get("/api/v1/alpha/signals")
+@limiter.limit("60/minute")
 async def get_alpha_signals(
+    request: Request,
+    response: Response,
     limit: int = Query(10, ge=1, le=20),
     _: str = Depends(require_api_key),
 ):
@@ -447,7 +468,10 @@ async def get_alpha_signals(
 
 
 @router.get("/api/v1/bankroll/size", response_model=KellyRecommendation)
+@limiter.limit("30/minute")
 async def get_bankroll_size(
+    request: Request,
+    response: Response,
     bankroll: float = Query(..., gt=0, description="Current bankroll amount"),
     p_win: float = Query(..., gt=0, le=1, description="Estimated win probability"),
     odds: float = Query(..., gt=1, description="Decimal odds"),
@@ -457,8 +481,26 @@ async def get_bankroll_size(
     return _bankroll_service.get_recommendation(bankroll, p_win, odds, venue)
 
 
+@router.get("/api/v1/portfolio", response_model=PortfolioSummary)
+async def get_portfolio(
+    bankroll: float = Query(..., gt=0, description="Current bankroll amount"),
+    p_win: float = Query(..., gt=0, le=1, description="Estimated win probability"),
+    odds: float = Query(..., gt=1, description="Decimal odds"),
+    venue: str = Query("SportyBet", description="Bookmaker venue"),
+    clv_execution_odds: float = Query(2.10, gt=1, description="Execution odds for CLV comparison"),
+    clv_closing_odds: float = Query(2.00, gt=1, description="Closing odds for CLV comparison"),
+    _: str = Depends(require_api_key),
+):
+    return _portfolio_service.get_portfolio(
+        bankroll, p_win, odds, venue, clv_execution_odds, clv_closing_odds
+    )
+
+
 @router.get("/api/v1/signals")
+@limiter.limit("60/minute")
 async def get_signals(
+    request: Request,
+    response: Response,
     limit: int = Query(20, ge=1, le=50),
     _: str = Depends(require_api_key),
     odds_service=Depends(get_odds_lookup_service),
