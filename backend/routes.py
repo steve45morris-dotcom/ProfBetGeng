@@ -1,7 +1,7 @@
 import asyncio
 import uuid as _uuid
 import datetime as _datetime
-from typing import Optional, List
+from typing import Literal, Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Security, WebSocket, WebSocketDisconnect, BackgroundTasks
 from fastapi.responses import Response, StreamingResponse
@@ -31,6 +31,7 @@ from .services.risk_engine import RiskEngine
 from .services.sentiment import SentimentAnalysisService
 from .services.odds_lookup import get_odds_lookup_service
 from .services.portfolio_service import PortfolioService, PortfolioSummary
+from .services.outcome_service import OutcomeService, MockOutcomeService, TicketOutcome, PerformanceStats
 from .services.supabase_client import get_supabase_client
 from .services.limiter_config import limiter
 from .config import get_settings
@@ -509,6 +510,34 @@ async def get_signals(
     if odds_service is not None:
         await odds_service.enrich_market_signals(signals)
     return {"signals": [s.model_dump() for s in signals], "count": len(signals)}
+
+
+def get_outcome_service():
+    client = get_supabase_client()
+    return OutcomeService(client) if client else MockOutcomeService()
+
+
+class SettleRequest(BaseModel):
+    outcome: Literal["WIN", "LOSS", "VOID", "PENDING"]
+    payout_odds: Optional[float] = None
+
+
+@router.post("/api/v1/tickets/{ticket_ref}/settle", response_model=TicketOutcome, status_code=201)
+async def settle_ticket(
+    ticket_ref: str,
+    body: SettleRequest,
+    api_key: str = Depends(require_api_key),
+    outcome_service=Depends(get_outcome_service),
+):
+    return outcome_service.record_outcome(api_key, ticket_ref, body.outcome, body.payout_odds)
+
+
+@router.get("/api/v1/analytics/performance", response_model=PerformanceStats)
+async def get_performance(
+    api_key: str = Depends(require_api_key),
+    outcome_service=Depends(get_outcome_service),
+):
+    return outcome_service.get_performance_stats(api_key)
 
 
 @router.websocket("/api/v1/ws/odds")
