@@ -46,6 +46,30 @@ def test_to_json_safe_handles_nested_datetime_payloads():
 
 
 @pytest.mark.asyncio
+async def test_conversion_success_broadcast_shape():
+    """CONVERSION_SUCCESS emitted by /convert must carry required fields, all JSON-safe."""
+    manager = ConnectionManager()
+    ws = FakeWebSocket()
+    manager.active_connections.append(ws)
+
+    import datetime as dt
+    await manager.broadcast_json({
+        "type": "CONVERSION_SUCCESS",
+        "source": "sportybet",
+        "target": "bet9ja",
+        "selections": 3,
+        "timestamp": dt.datetime(2026, 5, 9, 10, 0, tzinfo=dt.timezone.utc).isoformat(),
+    })
+
+    msg = ws.messages[0]
+    assert msg["type"] == "CONVERSION_SUCCESS"
+    assert msg["source"] == "sportybet"
+    assert msg["target"] == "bet9ja"
+    assert msg["selections"] == 3
+    assert "timestamp" in msg
+
+
+@pytest.mark.asyncio
 async def test_connection_manager_broadcasts_json_safe_payload():
     manager = ConnectionManager()
     websocket = FakeWebSocket()
