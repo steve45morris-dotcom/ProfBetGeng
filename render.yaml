@@ -9,7 +9,7 @@ services:
       - key: ENVIRONMENT
         value: production
       - key: APP_VERSION
-        value: "0.5.0"
+        value: "1.1.0"
       - key: AUTH_ENABLED
         value: "true"
       - key: BATCH_ENABLED
@@ -25,4 +25,14 @@ services:
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: ALLOWED_ORIGINS
+        sync: false
+      - key: THE_ODDS_API_KEY
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+      - key: LANGFUSE_PUBLIC_KEY
+        sync: false
+      - key: LANGFUSE_SECRET_KEY
+        sync: false
+      - key: LANGFUSE_HOST
         sync: false

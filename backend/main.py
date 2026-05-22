@@ -85,6 +85,33 @@ def create_app() -> FastAPI:
     app.include_router(syndicate_router)
     app.include_router(analytics_router)
     app.include_router(admin_router)
+
+    # Unified static frontend hosting (production container fallback)
+    import os
+    from pathlib import Path
+    from fastapi.staticfiles import StaticFiles
+    from fastapi.responses import FileResponse
+
+    frontend_dist = Path(__file__).parent.parent / "frontend" / "dist"
+    if frontend_dist.exists() and frontend_dist.is_dir():
+        # Mount /assets specifically for standard Vite assets bundles
+        assets_dir = frontend_dist / "assets"
+        if assets_dir.exists() and assets_dir.is_dir():
+            app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+
+        # Catch-all route to serve other files in dist/ and fallback to index.html for React SPA routes
+        @app.get("/{fallback_path:path}")
+        async def serve_frontend(fallback_path: str):
+            # Check if requesting a direct static file in dist (like favicon.svg, icons.svg)
+            file_path = frontend_dist / fallback_path
+            if file_path.exists() and file_path.is_file():
+                return FileResponse(str(file_path))
+            
+            # Default fallback to React SPA index.html
+            index_file = frontend_dist / "index.html"
+            if index_file.exists():
+                return FileResponse(str(index_file))
+
     return app
 
 

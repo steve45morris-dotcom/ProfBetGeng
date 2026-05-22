@@ -10,6 +10,13 @@ venv/
 dist/
 build/
 
+# Node / JS
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/dist_v2/
+.npm_cache/
+
 # Secrets — never bake into the image
 backend/.env
 .env
@@ -25,8 +32,10 @@ coverage.xml
 
 # Dev tooling
 .agent/
+.agents/
 .ruff_cache/
 .mypy_cache/
+.playwright-mcp/
 
 # Editor
 .DS_Store
